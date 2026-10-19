@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Access audit: task list</title>
+<style>
+:root{--bg:#f7f7f5;--fg:#1c1c1a;--mut:#6b6b66;--card:#fff;--line:#e3e3de;--acc:#2f6fed;--ok:#2e8b57;--code:#f0f0ec;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--fg:#ecece8;--mut:#9a9a93;--card:#1f1f1d;--line:#34342f;--acc:#6b9bff;--ok:#5cc08a;--code:#2a2a27}}
+:root[data-theme="dark"]{--bg:#161615;--fg:#ecece8;--mut:#9a9a93;--card:#1f1f1d;--line:#34342f;--acc:#6b9bff;--ok:#5cc08a;--code:#2a2a27}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 16px;font-size:.95rem}
+.top{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.track{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:10px}
+#bar{height:100%;width:0;background:var(--ok);transition:width .25s}
+button{font:inherit;font-size:.85rem;color:var(--acc);background:none;border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 16px 10px;margin-bottom:14px}
+h2{font-size:1.05rem;display:flex;justify-content:space-between;gap:8px;margin:12px 0 4px}
+h2 small{color:var(--mut);font-weight:400}
+ul{list-style:none;margin:0;padding:0}
+li{padding:10px 0;border-top:1px solid var(--line)}
+li:first-child{border-top:0}
+label{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+input[type=checkbox]{width:20px;height:20px;margin-top:2px;flex:none;accent-color:var(--ok)}
+li p{margin:2px 0 0;color:var(--mut);font-size:.92rem}
+li.done strong{text-decoration:line-through;color:var(--mut)}
+.cmd{display:flex;gap:8px;align-items:center;margin:8px 0 0 32px}
+code{flex:1;min-width:0;overflow-x:auto;white-space:pre;background:var(--code);border-radius:8px;padding:8px 10px;font:.82rem/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}
+.note{color:var(--mut);font-size:.85rem;margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>Access audit: task list</h1>
+<p class="sub">Hermes, Codex, Cursor, Claude Code, n8n and MiroFish on your MacBook. Work top to bottom: the macOS layer affects everything.</p>
+<div class="top">
+<div class="row"><strong id="prog">0 of 0 done</strong><button type="button" id="reset">Reset</button></div>
+<div class="track"><div id="bar"></div></div>
+<div class="note">Ticks are saved in this browser only. Command blocks only print config lines; never paste .env files anywhere.</div>
+</div>
+<div id="list"></div>
+</main>
+<script>
+const K="access-audit-v1";
+const S=[
+{h:"1 · macOS privacy (all six)",t:[
+["Review Full Disk Access","System Settings → Privacy & Security → Full Disk Access. Switch off your terminal app (Terminal, iTerm, Warp, Ghostty) unless you need it: every CLI tool launched from it inherits it."],
+["Check the other grants","Same pane: Files & Folders, Accessibility, Automation, Screen & System Audio Recording, Local Network, Developer Tools. Switch off anything you don’t recognise. Cursor is listed under its own name; CLI tools sit under your terminal app."],
+["Prune login items","System Settings → General → Login Items & Extensions. Remove background items you didn’t mean to keep."]]},
+{h:"2 · See what’s running",t:[
+["List listening ports","Expect n8n on 5678 and MiroFish on 3000 and 5001 only while they’re running.",`lsof -iTCP -sTCP:LISTEN -n -P`],
+["List background services","Look for Hermes, n8n or MiroFish launch agents you forgot about.",`launchctl list | grep -i -E "hermes|n8n|mirofish"
+ls ~/Library/LaunchAgents`],
+["Search for loosened modes","Flags, aliases and settings that remove prompts or sandboxes.",`grep -n -i -E "dangerously|bypassPermissions|yolo|danger-full-access|approval" ~/.zshrc ~/.zprofile ~/.claude/settings.json ~/.codex/config.toml ~/.hermes/config.yaml 2>/dev/null`]]},
+{h:"3 · Hermes Agent",t:[
+["Check the approval mode","Look for approvals.mode: off and any saved “always allow” patterns in the allowlist. Remove what you don’t want.",`hermes config`],
+["Switch to manual approvals","In the editor, set approvals: mode: manual so every flagged command asks you first.",`hermes config edit`],
+["Turn off unused toolsets","Disable anything you don’t use.",`hermes tools`],
+["Check the messaging gateway","If you set up Telegram, Discord or Slack, everyone authorised there gets equal trust. Stop it if you don’t use it.",`hermes gateway status`],
+["Consider a container backend","For unattended runs, move commands into Docker. Container backends skip the dangerous-command prompts because the container is the boundary.",`hermes config set terminal.backend docker`],
+["Check key file permissions","~/.hermes/.env should be readable by you only.",`ls -la ~/.hermes/.env`]]},
+{h:"4 · Codex",t:[
+["Read your config","Open ~/.codex/config.toml and find the sandbox and approval settings. danger-full-access with approval never means no limits.",`less ~/.codex/config.toml`],
+["Confirm the live mode","In the CLI, type /permissions. In the Codex app, open the permissions selector (Default permissions, Full access, Custom)."],
+["Prune trusted folders","In config.toml, review the [projects] entries and delete trust for folders you don’t want."]]},
+{h:"5 · Cursor",t:[
+["Check your run mode","Cursor Settings → Agents → Auto-Run (some versions: Approvals & Execution). Make sure it isn’t Run Everything. If it says “Allowlist (with Sandbox)”, supported commands may auto-run."],
+["Trim the allowlists","Remove broad Command Allowlist and MCP Allowlist entries, in the UI or in ~/.cursor/permissions.json."],
+["Turn on Privacy Mode","Cursor Settings → Privacy."],
+["Enable Workspace Trust","It’s off by default. Add this to your user settings.json (restricted mode disables the AI features in untrusted folders):",`"security.workspace.trust.enabled": true`],
+["Hide secrets from the agent","Add a .cursorignore to projects that contain .env files or keys."]]},
+{h:"6 · Claude Code",t:[
+["Review permission rules","Inside Claude Code, run /permissions. Remove broad allow rules created by “don’t ask again” clicks; they live in ~/.claude/settings.json and each project’s .claude/settings.local.json."],
+["Check for bypass modes","Look for defaultMode set to bypassPermissions or dontAsk, and aliases using --dangerously-skip-permissions.",`grep -n -i -E "dangerously|bypassPermissions|dontAsk" ~/.zshrc ~/.zprofile ~/.claude/settings.json`],
+["Turn on the sandbox","Run /sandbox inside Claude Code."],
+["Protect secrets","Add permissions.deny rules for .env files and keys. Deny rules cover the built-in file tools, not Bash subprocesses, so pair them with the sandbox."],
+["Prune MCP servers","Remove servers you don’t use.",`claude mcp list`],
+["Read unfamiliar repos’ settings","Before running it in a cloned repo, read its .claude/settings.json; project settings can preconfigure permissions."]]},
+{h:"7 · n8n",t:[
+["Confirm the defaults","n8n 2.0 and later disables Execute Command and Local File Trigger and blocks env access in Code nodes by default. Check which version you run; update if it’s older."],
+["Look for loosened env vars","Search your shell profile, docker-compose.yml or .env for NODES_EXCLUDE, N8N_BLOCK_ENV_ACCESS_IN_NODE and N8N_RESTRICT_FILE_ACCESS_TO. A tutorial may have emptied or set them to false. N8N_BLOCK_ENV_ACCESS_IN_NODE only blocks $env; use NODES_EXCLUDE to hide Execute Command."],
+["Delete unused credentials","Open the Credentials list. Each one is access to another account. Also revoke the matching OAuth grants on that service’s connected-apps page."],
+["Check community nodes and API keys","Settings → Community Nodes: remove what you don’t need (they run with full access to the database and encryption key). Settings → n8n API: delete unused keys; on the community edition every key is full access."],
+["Deactivate unused workflows","Switch off active workflows (schedules, webhooks) you no longer need."],
+["Keep it off the internet","If it sits behind a tunnel or public URL, confirm that’s intentional. In Docker, publish the port locally only:",`-p 127.0.0.1:5678:5678`]]},
+{h:"8 · MiroFish",t:[
+["Confirm the repo","Many forks share the name and need different services. The original is 666ghj/MiroFish.",`git remote -v`],
+["Use dedicated keys","In .env, use an LLM key and a Zep Cloud key created just for MiroFish, with spend limits at the provider. Seed material you upload goes to both services."],
+["Lock down .env","Run in the project folder:",`chmod 600 .env`],
+["Keep ports local, stop when idle","In Docker, publish as 127.0.0.1:3000:3000 and 127.0.0.1:5001:5001. Shut the frontend and backend down when you’re not using them."]]},
+{h:"9 · Wrap-up",t:[
+["Rotate exposed keys","Rotate any API key that has ever been pasted into a chat, issue or screenshot."],
+["Re-run the audit commands","Repeat section 2 and confirm nothing unexpected is listening or launching."],
+["Get a second look","Paste the command output (never .env files) into your Claude chat and ask what’s still loosened."]]}
+];
+let done={},total=0;
+try{done=JSON.parse(localStorage.getItem(K)||"{}")||{}}catch(e){done={}}
+function save(){try{localStorage.setItem(K,JSON.stringify(done))}catch(e){}}
+const root=document.getElementById("list"),prog=document.getElementById("prog"),bar=document.getElementById("bar");
+function upd(){let n=0;S.forEach((s,i)=>{let c=0;s.t.forEach((_,j)=>{if(done[i+"-"+j])c++});n+=c;s.cn.textContent=c+"/"+s.t.length});prog.textContent=n+" of "+total+" done";bar.style.width=(total?n/total*100:0)+"%"}
+S.forEach((s,i)=>{
+const sec=document.createElement("section");sec.className="card";
+const h=document.createElement("h2"),hs=document.createElement("span"),cn=document.createElement("small");
+hs.textContent=s.h;h.append(hs,cn);sec.append(h);s.cn=cn;
+const ul=document.createElement("ul");
+s.t.forEach((t,j)=>{
+const id=i+"-"+j;total++;
+const li=document.createElement("li"),lb=document.createElement("label"),cb=document.createElement("input"),box=document.createElement("div"),tt=document.createElement("strong"),dd=document.createElement("p");
+cb.type="checkbox";cb.checked=!!done[id];li.classList.toggle("done",cb.checked);
+tt.textContent=t[0];dd.textContent=t[1]||"";box.append(tt,dd);lb.append(cb,box);li.append(lb);
+if(t[2]){const w=document.createElement("div"),c=document.createElement("code"),b=document.createElement("button");
+w.className="cmd";c.textContent=t[2];b.type="button";b.textContent="Copy";
+b.onclick=async()=>{try{await navigator.clipboard.writeText(t[2]);b.textContent="Copied"}catch(e){const r=document.createRange();r.selectNodeContents(c);const x=getSelection();x.removeAllRanges();x.addRange(r);b.textContent="Press ⌘C"}setTimeout(()=>{b.textContent="Copy"},1500)};
+w.append(c,b);li.append(w)}
+cb.onchange=()=>{if(cb.checked)done[id]=1;else delete done[id];li.classList.toggle("done",cb.checked);save();upd()};
+ul.append(li)});
+sec.append(ul);root.append(sec)});
+document.getElementById("reset").onclick=()=>{done={};save();root.querySelectorAll("input").forEach(x=>{x.checked=false});root.querySelectorAll("li").forEach(x=>x.classList.remove("done"));upd()};
+upd();
+</script>
+</body>
+</html>
